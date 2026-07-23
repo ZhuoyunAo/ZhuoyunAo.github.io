@@ -77,7 +77,7 @@ function update_query(u_key, u_val, buildhash = true) {
 var last_request_time = 0;
 const MIN_REQUEST_INTERVAL = 5000; // 5 seconds in milliseconds
 
-//var is_loading = false;
+
 
 function action_query() {
   const now = Date.now();
@@ -91,7 +91,8 @@ function action_query() {
   }
   
   last_request_time = now;
-  
+  $("#error_message").html(''); // Clear message
+    
   if(VERBOSE){ clog('action_query'); }
   var new_qry = build_hash();
   API_URL = api_call(new_qry.keys);
