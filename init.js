@@ -52,6 +52,8 @@ var query = {
 var QKEYS = Object.keys(query).slice(); // fixed array of query dict keys so we can work with their indices
 
 // This updates query dictionary and hash string
+var update_query_timeout;
+
 function update_query(u_key, u_val, buildhash = true) {
   if(VERBOSE) clog('updating ' + u_key + ' to ' + u_val);
   u_key = u_key.replace(/#/gi, '');   // remove hash symbol
@@ -62,13 +64,34 @@ function update_query(u_key, u_val, buildhash = true) {
   if(query.timespan == ''){ $('#datetime').prop('disabled', false);
     } else { $('#datetime').prop('disabled', true); }
   if(buildhash) { // action API call unless supressed
-    action_query();
-    iframe_zoom(2);
+    
+    clearTimeout(update_query_timeout);
+    update_query_timeout = setTimeout(function() {
+      action_query();
+      iframe_zoom(2);
+    }, 500); // 500ms delay to catch multiple rapid updates
   }
 }
 
 // coordinates a new query
+var last_request_time = 0;
+const MIN_REQUEST_INTERVAL = 5000; // 5 seconds in milliseconds
+
+//var is_loading = false;
+
 function action_query() {
+  const now = Date.now();
+  const time_since_last = now - last_request_time;
+  
+  if (time_since_last < MIN_REQUEST_INTERVAL) {
+    const wait_time = MIN_REQUEST_INTERVAL - time_since_last;
+    console.warn(`Rate limit: waiting ${wait_time}ms before next request`);
+    setTimeout(action_query, wait_time);
+    return;
+  }
+  
+  last_request_time = now;
+  
   if(VERBOSE){ clog('action_query'); }
   var new_qry = build_hash();
   API_URL = api_call(new_qry.keys);
