@@ -74,22 +74,32 @@ function update_query(u_key, u_val, buildhash = true) {
 }
 
 // coordinates a new query
+// Rate limiting globals
 var last_request_time = 0;
-const MIN_REQUEST_INTERVAL = 5000; // 5 seconds in milliseconds
+const MIN_REQUEST_INTERVAL = 5000; // 5 seconds in milliseconds // 5 seconds (per GDELT requirement)
 
-
-
+// Enhanced action_query with proper queuing
 function action_query() {
   const now = Date.now();
   const time_since_last = now - last_request_time;
   
   if (time_since_last < MIN_REQUEST_INTERVAL) {
+    // Queue the request instead of executing immediately
+    pending_query = { 
+      timestamp: now,
+      timeout: setTimeout(action_query, MIN_REQUEST_INTERVAL - time_since_last)
+    };
     const wait_time = MIN_REQUEST_INTERVAL - time_since_last;
-    console.warn(`Rate limit: waiting ${wait_time}ms before next request`);
-    setTimeout(action_query, wait_time);
+    if(VERBOSE) clog(`Rate limit: queuing request for ${wait_time}ms`);
     return;
   }
-  
+    
+  // Clear any pending query since we're executing now
+  if(pending_query) {
+    clearTimeout(pending_query.timeout);
+    pending_query = null;
+  }
+    
   last_request_time = now;
   $("#error_message").html(''); // Clear message
     
@@ -97,14 +107,17 @@ function action_query() {
   var new_qry = build_hash();
   API_URL = api_call(new_qry.keys);
   location.href = '#' + new_qry.hash;
+    
   // show query string and tags above iframe
   var title = query.query;
   if(query.imagetag) { title += ' imagetags: ' + query.imagetag }
   if(query.theme) { title += ' themes: ' + query.theme }
   title = title.replace(/,/gi,', ');        // add space after commas
   $("#iframe_title").text(title);
+    
   // update URL link and iframe source
   $("#gdelt_api_call").text(API_URL).attr("href", c(API_URL));
+    
   if(LIVE){
     if(API_URL.indexOf('TrendingTopics') > -1) { // use custom template handling
       API_URL = API_URL.replace(/&format=[^&]+/, '&format=json');
@@ -114,7 +127,20 @@ function action_query() {
       $("#gdelt_iframe").attr("src", './trending_topics.html');
       return;
     }
-    $("#gdelt_iframe").attr("src", API_URL);
+      
+    // Load with error handling
+    $("#gdelt_iframe").on('load', function() {
+      // Check for rate limit message in iframe
+      try {
+        var iframeContent = $(this).contents().text();
+        if(iframeContent.indexOf('limit requests to one every 5 seconds') > -1) {
+          $("#error_message").html('⚠️ API Rate Limit: Please wait 5 seconds before making another request.');
+          if(VERBOSE) clog('Rate limit message detected from API');
+        }
+      } catch(e) {
+        // Cross-origin, silent fail
+      }
+    }).attr("src", API_URL);
   }
 }
 
