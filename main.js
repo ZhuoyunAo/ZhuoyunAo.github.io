@@ -172,38 +172,17 @@ function selectize_element (id, max_items, options, title) {
   $(id).change(function() { update_query(c(id), c($(id).val())); }); // event listener
 }
 
-// Rate-limited menu data loader (replaces the original load_menu_data)
-var menu_load_queue = [];
-var menu_load_in_progress = false;
-
-function load_menu_data_queued(fn, ids, max_items, title) {
-  menu_load_queue.push({ fn: fn, ids: ids, max_items: max_items, title: title });
-  process_menu_load_queue();
-}
-
-function process_menu_load_queue() {
-  if(menu_load_in_progress || menu_load_queue.length === 0) return;
+// ENHANCED: Rate-limited menu data loader using queue_ajax from init.js
+function load_menu_data (fn, ids, max_items, title) {
+  if(VERBOSE) clog(fn + ' start');
   
-  menu_load_in_progress = true;
-  var task = menu_load_queue.shift();
-  
-  $.ajax({
-    url: task.fn,
-    type: 'GET',
-    dataType: 'json',
-    timeout: 8000,
-    error: function(err) { 
-      clog('Menu load error for ' + task.fn + ': ' + err.statusText);
-      menu_load_in_progress = false;
-      setTimeout(process_menu_load_queue, 1000); // retry after 1s
-    },
-    success: function(options) {
-      if(task.fn == "data/LOOKUP-IMAGETAGS.json" || task.fn == "data/LOOKUP-GKGTHEMES.json"){
-        for(var i=0; i<options.length; i++) { 
-          options[i].name = options[i].code + ' (' + options[i].n + ')'; 
-        }
+  queue_ajax(
+    fn,
+    function(options) {
+      if(fn == "data/LOOKUP-IMAGETAGS.json" || fn == "data/LOOKUP-GKGTHEMES.json"){
+        for(var i=0; i<options.length; i++) { options[i].name = options[i].code + ' (' + options[i].n + ')'; }
       }
-      if(task.fn == "//api.gdeltproject.org/api/v2/tv/tv?mode=stationdetails&format=json"){
+      if(fn == "//api.gdeltproject.org/api/v2/tv/tv?mode=stationdetails&format=json"){
         options = options.station_details;
         for(var i=0; i<options.length; i++) {
           options[i].code = options[i].StationID;
@@ -216,36 +195,37 @@ function process_menu_load_queue() {
           });
         }
       }
-      
       // selectize each associated DOM element
-      for(var i=0; i<task.ids.length; i++) { 
-        selectize_element(task.ids[i], task.max_items[i], options, task.title[i]); 
-      }
+      for(var i=0; i<ids.length; i++) { selectize_element(ids[i], max_items[i], options, title[i]); }
       sources_loaded++;
-      if(sources_loaded == 11) { if(VERBOSE) { clog('LOAD COMPLETE'); }}
-      
-      menu_load_in_progress = false;
-      // Wait 500ms before next menu load to avoid rate limiting
-      setTimeout(process_menu_load_queue, 500);
+      if(sources_loaded == 14) { if(VERBOSE) { clog('LOAD COMPLETE'); }}
+      if(VERBOSE) clog(fn + ' success');
     },
-  });
+    function(err) {
+      clog('Menu data error: ' + fn + ' - ' + err);
+    },
+    'json'
+  );
 }
 
-// Replace all load_menu_data calls with load_menu_data_queued
-load_menu_data_queued("data/LOOKUP-IMAGETAGS.json", ['#imagetag'], [7], ['Every image processed by GDELT is assigned one or more topical tags...']);
-load_menu_data_queued("data/LOOKUP-GKGTHEMES.json", ['#theme'], [7], ['Searches for any of the GDELT Global Knowledge Graph...']);
-load_menu_data_queued("data/LOOKUP-LANGUAGES.json", ['#searchlang','#sourcelang'], [1,7], ['','Language(s) of the content...']);
-load_menu_data_queued("data/LOOKUP-COUNTRIES.json", ['#sourcecountry','#geolocationcc'], [7,7], ['Country or countries...','Specify country...']);
-load_menu_data_queued("data/LOOKUP-ADM1.json", ['#geolocationadm1'], [7], ['Specify ADM1 region...']);
-load_menu_data_queued("data/lookup-sort.json", ['#sort'], [1], ['By default results are sorted...']);
-load_menu_data_queued("data/lookup-domain.json", ['#domain'], [7], ['Web domain of target content...']);
-load_menu_data_queued("data/lookup-mode.json", ['#contentmode'], [1], ['GDELT modes for investigating...']);
-load_menu_data_queued("data/lookup-timeline.json", ['#timelinemode'], [1], ['GDELT modes for investigating trends...']);
-load_menu_data_queued("data/lookup-tv.json", ['#tvmode'], [1], ['GDELT modes for investigating television...']);
-load_menu_data_queued("data/lookup-format.json", ['#format'], [1], ['Data formats for data export']);
-load_menu_data_queued("data/lookup-geo_mode.json", ['#geomode'], [1], ['GDELT modes for geographical references...']);
-load_menu_data_queued("data/lookup-geo_format.json", ['#geoformat'], [1], ['Data formats for data export']);
-load_menu_data_queued("//api.gdeltproject.org/api/v2/tv/tv?mode=stationdetails&format=json", ['#network'], [7], ['TV networks...']);
+// load selection option sets and append as options to DOM. Adds title tooltips to new elements
+// All queue_ajax calls are automatically rate-limited with 5-second minimum between requests
+load_menu_data("data/LOOKUP-IMAGETAGS.json", ['#imagetag'], [7], ['Every image processed by GDELT is assigned one or more topical tags from a universe of more than 10,000 objects and activities recogn[...]
+load_menu_data("data/LOOKUP-GKGTHEMES.json", ['#theme'], [7], ['Searches for any of the GDELT Global Knowledge Graph (GKG) Themes. GKG Themes offer a powerful way of searching for complex topics, sinc[...]
+load_menu_data("data/LOOKUP-LANGUAGES.json", ['#searchlang','#sourcelang'], [1,7], ['','Language(s) of the content you are searching for. GDELT handles the interpretation']); // searchlang deprecated,[...]
+load_menu_data("data/LOOKUP-COUNTRIES.json", ['#sourcecountry','#geolocationcc'], [7,7], ['Country or countries where the target content has originated','Specify country of media mentions']);
+load_menu_data("data/LOOKUP-ADM1.json", ['#geolocationadm1'], [7], ['Specify ADM1 (top sub-national) geographical region of media mentions']);
+load_menu_data("data/lookup-sort.json", ['#sort'], [1], ['By default results are sorted by relevance. You can also sort by date or article tone instead']);
+load_menu_data("data/lookup-domain.json", ['#domain'], [7], ['Web domain of target content - e.g. "cnn.com"']);
+load_menu_data("data/lookup-mode.json", ['#contentmode'], [1], ['GDELT modes for investigating source content']);
+load_menu_data("data/lookup-timeline.json", ['#timelinemode'], [1], ['GDELT modes for investigating trends over time']);
+load_menu_data("data/lookup-tv.json", ['#tvmode'], [1], ['GDELT modes for investigating television trends']);
+load_menu_data("data/lookup-format.json", ['#format'], [1], ['Data formats for data export']);
+load_menu_data("data/lookup-geo_mode.json", ['#geomode'], [1], ['GDELT modes for investigating geographical references within the content. This use GDELT\'s 7 day GEO API.']);
+load_menu_data("data/lookup-geo_format.json", ['#geoformat'], [1], ['Data formats for data export']);
+load_menu_data("//api.gdeltproject.org/api/v2/tv/tv?mode=stationdetails&format=json", ['#network'], [7], ['TV networks - national and international.']);
+// load_menu_data("data/LOOKUP-STATIONS.json", ['#network'], [7], ['TV networks - national and international.']);
+
 // EVENT HANDLERS
 
 var timeout = null; // global timer to perform actions 0.5s after input activity has stopped
