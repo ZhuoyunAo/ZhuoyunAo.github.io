@@ -23,7 +23,11 @@
 
   <script>
 
+var $ = window.parent.$;
 var api_url = window.parent.API_URL;
+var queue_ajax = window.parent.queue_ajax;
+var clog = window.parent.clog;
+var VERBOSE = window.parent.VERBOSE;
 
 function array_to_ul(x, sep1='', sep2='') {
   var item = '';
@@ -32,14 +36,12 @@ function array_to_ul(x, sep1='', sep2='') {
 }
 
 // ENHANCED: Use rate-limited queue from parent init.js instead of direct AJAX
-if(typeof window.parent.queue_ajax !== 'undefined') {
-  // Parent window has rate limiting system
-  window.parent.queue_ajax(
-    api_url,
-    function(dat) {
-      d = dat;
+queue_ajax(
+  api_url,
+  function(dat) {
+    d = dat;
 
-      var body = '<div class="row">\
+    var body = '<div class="row">\
   <div class="col-6">\
     <h3>TRENDING</h3>\
   </div>\
@@ -47,69 +49,27 @@ if(typeof window.parent.queue_ajax !== 'undefined') {
     <h3>TOP PHRASES</h3>\
   </div>\
 </div>';
-      body += '<div class="row">';
-        body += '<div class="col-6 topRow"> ' + array_to_ul(d.OverallTrendingTopics, sep2='• ') + '</div>';
-        body += '<div class="col-6 topRow"> ' + array_to_ul(d.OverallTrendingPhrases, sep2='• ') + '</div>';
-      body += '</div><br>';
+    body += '<div class="row">';
+      body += '<div class="col-6 topRow"> ' + array_to_ul(d.OverallTrendingTopics, sep2='• ') + '</div>';
+      body += '<div class="col-6 topRow"> ' + array_to_ul(d.OverallTrendingPhrases, sep2='• ') + '</div>';
+    body += '</div><br>';
 
-      body += '<div class="row mainRow">';
-      for(var i=0; i<d.StationTrendingTopics.length; i++){
-        if(d.StationTrendingTopics[i].Station == 'FBC') continue;
-        body += '<div class="station col-2"> <h3>' + d.StationTrendingTopics[i].Station + '</h3>';
-        body += '<h4><em><b>trending</b></em></h4>' + array_to_ul(d.StationTrendingTopics[i].Topics, sep1='• ');
-        body += '<h4><em><b>top topics</b></em></h4>' + array_to_ul(d.StationTopTopics[i].Topics, sep1='• ') + '</div>';
-      }
-      body += '</div>';
+    body += '<div class="row mainRow">';
+    for(var i=0; i<d.StationTrendingTopics.length; i++){
+      if(d.StationTrendingTopics[i].Station == 'FBC') continue;
+      body += '<div class="station col-2"> <h3>' + d.StationTrendingTopics[i].Station + '</h3>';
+      body += '<h4><em><b>trending</b></em></h4>' + array_to_ul(d.StationTrendingTopics[i].Topics, sep1='• ');
+      body += '<h4><em><b>top topics</b></em></h4>' + array_to_ul(d.StationTopTopics[i].Topics, sep1='• ') + '</div>';
+    }
+    body += '</div>';
 
-      $("#main").append(body);
-      console.log('Trending topics loaded (rate-limited)');
-    },
-    function(err) {
-      console.error('Trending topics load error:', err);
-      $("#main").append('<p style="color: red; margin: 10px;">Error loading trending topics. Please check rate limit.</p>');
-    },
-    'json'
-  );
-} else {
-  // Fallback if parent doesn't have queue_ajax (shouldn't happen, but safe)
-  $.ajax({
-    url: api_url,
-    type: 'GET',
-    dataType: 'json',
-    error: function(err) { 
-      console.error('Fallback error:', err);
-      $("#main").append('<p style="color: red; margin: 10px;">Error loading trending topics.</p>');
-    },
-    success: function(dat) {
-      d = dat;
-
-      var body = '<div class="row">\
-  <div class="col-6">\
-    <h3>TRENDING</h3>\
-  </div>\
-  <div class="col-6">\
-    <h3>TOP PHRASES</h3>\
-  </div>\
-</div>';
-      body += '<div class="row">';
-        body += '<div class="col-6 topRow"> ' + array_to_ul(d.OverallTrendingTopics, sep2='• ') + '</div>';
-        body += '<div class="col-6 topRow"> ' + array_to_ul(d.OverallTrendingPhrases, sep2='• ') + '</div>';
-      body += '</div><br>';
-
-      body += '<div class="row mainRow">';
-      for(var i=0; i<d.StationTrendingTopics.length; i++){
-        if(d.StationTrendingTopics[i].Station == 'FBC') continue;
-        body += '<div class="station col-2"> <h3>' + d.StationTrendingTopics[i].Station + '</h3>';
-        body += '<h4><em><b>trending</b></em></h4>' + array_to_ul(d.StationTrendingTopics[i].Topics, sep1='• ');
-        body += '<h4><em><b>top topics</b></em></h4>' + array_to_ul(d.StationTopTopics[i].Topics, sep1='• ') + '</div>';
-      }
-      body += '</div>';
-
-      $("#main").append(body);
-      console.log('end (fallback mode)');
-    },
-  });
-}
+    $("#main").append(body);
+    console.log('end');
+  },
+  function(err) { 
+    console.log('Trending topics load error: ' + err); 
+  }
+);
 
   </script>
 </body>
