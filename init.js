@@ -51,7 +51,7 @@ var query = {
 };
 var QKEYS = Object.keys(query).slice(); // fixed array of query dict keys so we can work with their indices
 
-// GLOBAL RATE LIMITING AND AJAX QUEUE MANAGEMENT
+// ===== UNIVERSAL RATE-LIMITED AJAX QUEUE SYSTEM =====
 var last_request_time = 0;
 const MIN_REQUEST_INTERVAL = 5000; // 5 seconds in milliseconds (per GDELT requirement)
 var pending_query = null;
@@ -108,6 +108,8 @@ function queue_ajax(url, success_callback, error_callback, dataType) {
   process_ajax_queue();
 }
 
+// ===== END RATE-LIMITED AJAX QUEUE SYSTEM =====
+
 // This updates query dictionary and hash string
 var update_query_timeout;
 
@@ -121,6 +123,7 @@ function update_query(u_key, u_val, buildhash = true) {
   if(query.timespan == ''){ $('#datetime').prop('disabled', false);
     } else { $('#datetime').prop('disabled', true); }
   if(buildhash) { // action API call unless supressed
+    
     clearTimeout(update_query_timeout);
     update_query_timeout = setTimeout(function() {
       action_query();
@@ -129,12 +132,13 @@ function update_query(u_key, u_val, buildhash = true) {
   }
 }
 
-// Enhanced action_query with proper queuing
+// coordinates a new query
 function action_query() {
   const now = Date.now();
   const time_since_last = now - last_request_time;
   
   if (time_since_last < MIN_REQUEST_INTERVAL) {
+    // Queue the request instead of executing immediately
     pending_query = { 
       timestamp: now,
       timeout: setTimeout(action_query, MIN_REQUEST_INTERVAL - time_since_last)
@@ -143,31 +147,31 @@ function action_query() {
     if(VERBOSE) clog(`Rate limit: queuing request for ${wait_time}ms`);
     return;
   }
-  
+    
   // Clear any pending query since we're executing now
   if(pending_query) {
     clearTimeout(pending_query.timeout);
     pending_query = null;
   }
-  
+    
   last_request_time = now;
   $("#error_message").html(''); // Clear message
-  
+    
   if(VERBOSE){ clog('action_query'); }
   var new_qry = build_hash();
   API_URL = api_call(new_qry.keys);
   location.href = '#' + new_qry.hash;
-  
+    
   // show query string and tags above iframe
   var title = query.query;
   if(query.imagetag) { title += ' imagetags: ' + query.imagetag }
   if(query.theme) { title += ' themes: ' + query.theme }
   title = title.replace(/,/gi,', ');        // add space after commas
   $("#iframe_title").text(title);
-  
+    
   // update URL link and iframe source
   $("#gdelt_api_call").text(API_URL).attr("href", c(API_URL));
-  
+    
   if(LIVE){
     if(API_URL.indexOf('TrendingTopics') > -1) { // use custom template handling
       API_URL = API_URL.replace(/&format=[^&]+/, '&format=json');
@@ -177,9 +181,10 @@ function action_query() {
       $("#gdelt_iframe").attr("src", './trending_topics.html');
       return;
     }
-    
-    // Attach handler BEFORE setting src
-    $("#gdelt_iframe").one('load', function() {
+      
+    // Load with error handling
+    $("#gdelt_iframe").on('load', function() {
+      // Check for rate limit message in iframe
       try {
         var iframeContent = $(this).contents().text();
         if(iframeContent.indexOf('limit requests to one every 5 seconds') > -1) {
@@ -299,61 +304,40 @@ function hash(){
   // if hash is a COMPARE setting it needs special handling
   if(init_args[0] == 'compare') {
     if(VERBOSE) { clog('compare init start'); }
-    compare_mode = true;
-    
-    // RATE-LIMITED queue for compare data loading
-    var compare_urls = [];
+    compare_mode = true;  // initialise in Compare mode?
     for(var i=1; i<init_args.length; i++){
       var compare_arg = c(init_args[i]).split('=');
       var dataname = c(compare_arg[0]);
       compare_url = decodeURIComponent(c(compare_arg[1]));
-      compare_url = compare_url.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json';
+      compare_url = compare_url.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json'; // ensure correct format argument
       
-      compare_urls.push({name: dataname, url: compare_url});
-    }
-    
-    // Load compare data with rate limiting
-    function load_next_compare_data(index) {
-      if(index >= compare_urls.length) {
-        // All loaded, proceed
-        if(VERBOSE) { clog('compare init end'); }
-        return;
-      }
-      
-      var item = compare_urls[index];
+      // Use rate-limited queue for compare data loading
       queue_ajax(
-        item.url,
+        compare_url,
         function(options) {
-          datasets[item.name] = { 'name': item.name, 'url': item.url, 'data': options };
-          if(VERBOSE) { clog('comp data added for: ' + item.name); }
-          clog('comp data added for: ' + item.name);
-          load_next_compare_data(index + 1);
+          datasets[dataname] = { 'name': dataname, 'url': compare_url, 'data': options };
+          if(VERBOSE) { clog('comp data added for: ' + dataname); }
+          clog('comp data added for: ' + dataname);
         },
         function(err) {
-          if(VERBOSE) { clog('compare data load failed for: ' + item.name); }
-          load_next_compare_data(index + 1); // continue anyway
+          if(VERBOSE) { clog('ajax call fail: ' + err); }
         }
       );
     }
-    
     init_argset_keys = ['timelinemode'];
 
-    // initialise app inputs with one of the options if we have URLs
-    if(compare_urls.length > 0) {
-      new_init_args = compare_urls[0].url
-        .match(/query=.*/g)[0]
-        .replace(/mode/g, 'timelinemode')
-        .replace(/&format=json/g, '')
-        .replace(/^#/i,'')
-        .replace(/%20/gi, ' ')
-        .replace(/%22/gi, '"')
-        .split('&');
+    // initialise app inputs with one of the options
+    new_init_args = compare_url
+      .match(/query=.*/g)[0]
+      .replace(/mode/g, 'timelinemode')
+      .replace(/&format=json/g, '')
+      .replace(/^#/i,'')      // remove hash symbol
+      .replace(/%20/gi, ' ')  // replace '%20' joiner with '&'
+      .replace(/%22/gi, '"')  // replace '%22' with "
+      .split('&');
 
-      init_args = ['api=doc'].concat(new_init_args);
-    }
-    
-    // Start loading compare data
-    load_next_compare_data(0);
+    init_args = ['api=doc'].concat(new_init_args);
+    if(VERBOSE) { clog('compare init end'); }
   }
 
   // implement verbose reporting
