@@ -266,6 +266,13 @@ function hash(){
   if(VERBOSE) clog('hash parsed');
 }
 
+function viewLoadedCompareDatasets() {
+  var loaded = Object.keys(datasets).length;
+  if(!loaded) { return; }
+  document.getElementById("analysis_datacount").innerHTML = loaded;
+  action_analysis(true);
+}
+
 function copyApiCall(element) {
   var $temp = $("<input>");
   $("body").append($temp);
@@ -275,4 +282,3 @@ function copyApiCall(element) {
 }
 
 hash();
-
