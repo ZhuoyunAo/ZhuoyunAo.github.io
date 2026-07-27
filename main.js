@@ -283,7 +283,7 @@ $(window).bind("load", function() {
     }).catch(function(err) {
       setCompareLoadStatus(Object.keys(datasets).length, compareLoadTotal, true);
       console.error('Unable to load one or more comparison datasets.', err);
-      alert('One or more comparison datasets could not be loaded. Please wait and try again.');
+      alert('One or more comparison datasets could not be loaded. Please check your network connection and try reloading the page.');
     });
   }
   resize_panels();

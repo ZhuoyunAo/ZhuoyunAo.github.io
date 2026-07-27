@@ -10,6 +10,7 @@ var sources_loaded = 0;
 // GDELT allows one request every five seconds. All API requests in this app
 // must reserve a slot through these helpers.
 var GDELT_MIN_REQUEST_INTERVAL = 5000;
+var GDELT_IFRAME_DEBOUNCE_MS = 750;
 var gdeltNextRequestAt = 0;
 var gdeltIframeTimer = null;
 var gdeltIframeRevision = 0;
@@ -115,7 +116,7 @@ function scheduleGdeltIframeLoad(url) {
         setGdeltRequestStatus('');
       }
     });
-  }, 750);
+  }, GDELT_IFRAME_DEBOUNCE_MS);
 }
 
 // timer/debugging functions
