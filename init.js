@@ -26,6 +26,220 @@ var compare_mode = false;
 var datasets = {};
 var dataname;
 
+// Rate-limiting and async GDELT request globals
+var GDELT_MIN_REQUEST_INTERVAL = 5000;
+var gdeltNextRequestAt = 0;
+var gdeltIframeTimer = null;
+var gdeltIframeRevision = 0;
+var compareLoadPromise = Promise.resolve();
+var compareLoadState = null;
+
+function setGdeltRequestStatus(message, active) {
+  if (!message) {
+    $('#gdelt_request_status').hide();
+    return;
+  }
+  $('#gdelt_request_status_text').text(message);
+  $('#gdelt_request_spinner').toggle(active !== false);
+  $('#gdelt_request_status').show();
+}
+
+function setCompareLoadStatus(completed, total, failed) {
+  if (!total) {
+    $('#compare_load_status').hide();
+    $('#compare_load_cancel').hide();
+    $('#compare_load_view').hide();
+    return;
+  }
+
+  var percent = Math.round((completed / total) * 100);
+  var $bar = $('#compare_load_progress');
+  $bar
+    .attr('aria-valuemax', total)
+    .attr('aria-valuenow', completed)
+    .css('width', percent + '%')
+    .toggleClass('bg-danger', !!failed)
+    .toggleClass('progress-bar-animated', !failed && completed < total)
+    .toggleClass('progress-bar-striped', !failed && completed < total);
+
+  if (failed) {
+    $('#compare_load_status_text').text(
+      'Comparison loading stopped: ' + completed + ' of ' + total + ' dataset(s) loaded.'
+    );
+    $('#compare_load_cancel').hide();
+    $('#compare_load_view').toggle(completed > 0);
+    $('#compare_load_status').show();
+    return;
+  }
+
+  if (completed >= total) {
+    $('#compare_load_status_text').text(
+      'Comparison datasets loaded: ' + total + ' of ' + total + '.'
+    );
+    $('#compare_load_cancel').hide();
+    $('#compare_load_view').hide();
+    $('#compare_load_status').show();
+    return;
+  }
+
+  $('#compare_load_status_text').text(
+    'Loading comparison datasets: ' + completed + ' of ' + total + '\u2026'
+  );
+  $('#compare_load_view').hide();
+  $('#compare_load_cancel').prop('disabled', false).show();
+  $('#compare_load_status').show();
+}
+
+function scheduleGdeltRequest(callback, delay) {
+  var startAt = Math.max(Date.now() + (delay || 0), gdeltNextRequestAt);
+  var wait = startAt - Date.now();
+  gdeltNextRequestAt = startAt + GDELT_MIN_REQUEST_INTERVAL;
+
+  if (wait > 250) {
+    setGdeltRequestStatus(
+      'Waiting for GDELT rate limit\u2026 next request in ' +
+      Math.ceil(wait / 1000) + ' second(s).',
+      true
+    );
+  }
+
+  var timer = window.setTimeout(function() {
+    setGdeltRequestStatus('Requesting data from GDELT\u2026', true);
+    callback();
+  }, wait);
+
+  return {
+    cancel: function() {
+      window.clearTimeout(timer);
+    }
+  };
+}
+
+function gdeltAjax(options, attempt, retryDelay, requestState) {
+  attempt = attempt || 0;
+
+  return new Promise(function(resolve, reject) {
+    var settled = false;
+    var scheduledRequest = null;
+
+    function removeCanceler(cancel) {
+      if (!requestState) { return; }
+      var index = requestState.cancelers.indexOf(cancel);
+      if (index > -1) { requestState.cancelers.splice(index, 1); }
+    }
+
+    function finish(resolveOrReject, value, cancel) {
+      if (settled) { return; }
+      settled = true;
+      removeCanceler(cancel);
+      resolveOrReject(value);
+    }
+
+    function cancelQueuedRequest() {
+      if (scheduledRequest) { scheduledRequest.cancel(); }
+      finish(reject, { cancelled: true }, cancelQueuedRequest);
+    }
+
+    if (requestState) {
+      if (requestState.cancelled) {
+        reject({ cancelled: true });
+        return;
+      }
+      requestState.cancelers.push(cancelQueuedRequest);
+    }
+
+    scheduledRequest = scheduleGdeltRequest(function() {
+      if (requestState && requestState.cancelled) {
+        finish(reject, { cancelled: true }, cancelQueuedRequest);
+        return;
+      }
+
+      $.ajax($.extend({}, options, {
+        success: function(data, status, xhr) {
+          setGdeltRequestStatus('');
+          if ($.isFunction(options.success)) { options.success(data, status, xhr); }
+          finish(resolve, data, cancelQueuedRequest);
+        },
+        error: function(xhr, status, error) {
+          if (requestState && requestState.cancelled) {
+            finish(reject, { cancelled: true }, cancelQueuedRequest);
+            return;
+          }
+
+          var responseText = xhr.responseText || '';
+          var rateLimited =
+            xhr.status === 429 ||
+            (xhr.status === 200 && responseText.indexOf('rate limit') !== -1);
+
+          if (rateLimited && attempt < 3) {
+            var retryAfter = parseInt(xhr.getResponseHeader('Retry-After'), 10);
+            var wait = isNaN(retryAfter) ? GDELT_MIN_REQUEST_INTERVAL : retryAfter * 1000;
+            setGdeltRequestStatus(
+              'GDELT rate limit reached. Retrying in ' +
+              Math.ceil(wait / 1000) + ' second(s)\u2026',
+              true
+            );
+            removeCanceler(cancelQueuedRequest);
+            gdeltAjax(options, attempt + 1, wait, requestState)
+              .then(resolve)
+              .catch(reject);
+            return;
+          }
+
+          setGdeltRequestStatus('GDELT request failed. Please try again shortly.', false);
+          if ($.isFunction(options.error)) { options.error(xhr, status, error); }
+          finish(reject, xhr, cancelQueuedRequest);
+        }
+      }));
+    }, retryDelay);
+  });
+}
+
+function cancelCompareLoads() {
+  if (!compareLoadState || compareLoadState.cancelled || !compareLoadState.active) {
+    return;
+  }
+
+  compareLoadState.cancelled = true;
+  compareLoadState.active = false;
+
+  var cancelers = compareLoadState.cancelers.slice();
+  for (var i = 0; i < cancelers.length; i++) {
+    cancelers[i]();
+  }
+
+  $('#compare_load_cancel').prop('disabled', true).hide();
+  $('#compare_load_progress')
+    .removeClass('progress-bar-animated progress-bar-striped')
+    .addClass('bg-secondary');
+  $('#compare_load_status_text').text(
+    'Comparison loading canceled: ' +
+    compareLoadState.completed + ' of ' + compareLoadState.total +
+    ' dataset(s) loaded.'
+  );
+  $('#compare_load_status').show();
+
+  if (Object.keys(datasets).length > 0) {
+    $('#compare_load_view').show();
+  }
+}
+
+function viewLoadedCompareDatasets() {
+  var loaded = Object.keys(datasets).length;
+
+  if (!loaded) {
+    $('#compare_load_status_text').text(
+      'No comparison datasets finished loading.'
+    );
+    $('#compare_load_view').hide();
+    return;
+  }
+
+  document.getElementById('analysis_datacount').innerHTML = loaded;
+  $('#compare_load_view').hide();
+  action_analysis();
+}
+
 // dictionary to manage API arguments. DO NOT EDIT - order of keys is critical for system integrity.
 var query = {
   'api':'doc', // 'doc' or 'geo' or 'tv'
@@ -201,24 +415,57 @@ function hash(){
   if(init_args[0] == 'compare') {
     if(VERBOSE) { clog('compare init start'); }
     compare_mode = true;  // initialise in Compare mode?
+
+    var compareRequests = [];
+    var compareCompleted = 0;
+    var compareTotal = init_args.length - 1;
+    compareLoadState = {
+      active: true,
+      cancelled: false,
+      cancelers: [],
+      completed: 0,
+      total: compareTotal
+    };
+    setCompareLoadStatus(compareCompleted, compareTotal);
+
     for(var i=1; i<init_args.length; i++){
-      var compare_arg = c(init_args[i]).split('=');
-      var dataname = c(compare_arg[0]);
-      compare_url = decodeURIComponent(c(compare_arg[1]));
-      compare_url = compare_url.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json'; // ensure correct format argument
-      $.ajax({
-        url: compare_url,
-        type: 'GET',
-        dataType: 'json',
-        error: function(err) { if(VERBOSE) { clog('ajax call fail: ' + err); }},
-        success: function(options) {
-          datasets[dataname] = { 'name': dataname, 'url': compare_url, 'data': options };
-          if(VERBOSE) { clog('comp data added for: ' + dataname); }
-          clog('comp data added for: ' + dataname);
-      	},
-        async: false, // get synchronously
-      });
+      (function(idx) {
+        var compare_arg = c(init_args[idx]).split('=');
+        var name = c(compare_arg[0]);
+        var url = decodeURIComponent(c(compare_arg[1]));
+        url = url.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json'; // ensure correct format argument
+        if(idx === init_args.length - 1) { compare_url = url; } // keep last url for init_args parsing below
+        compareRequests.push(gdeltAjax({
+          url: url,
+          type: 'GET',
+          dataType: 'json',
+          error: function(err) { if(VERBOSE) { clog('ajax call fail: ' + err); }},
+          success: function(options) {
+            datasets[name] = { 'name': name, 'url': url, 'data': options };
+            compareCompleted++;
+            compareLoadState.completed = compareCompleted;
+            setCompareLoadStatus(compareCompleted, compareTotal);
+            if(VERBOSE) { clog('comp data added for: ' + name); }
+          }
+        }, 0, 0, compareLoadState));
+      })(i);
     }
+
+    compareLoadPromise = Promise.all(compareRequests)
+      .then(function(result) {
+        compareLoadState.active = false;
+        $('#compare_load_cancel').hide();
+        setCompareLoadStatus(compareCompleted, compareTotal);
+        return result;
+      })
+      .catch(function(err) {
+        compareLoadState.active = false;
+        if (!err || !err.cancelled) {
+          setCompareLoadStatus(compareCompleted, compareTotal, true);
+        }
+        throw err;
+      });
+
     init_argset_keys = ['timelinemode'];
 
     // initialise app inputs with one of the options

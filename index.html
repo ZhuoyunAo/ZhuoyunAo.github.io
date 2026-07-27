@@ -314,6 +314,30 @@ which must be matched in the same 15s clip as the positive
         <button type="button" class="col-1 inline-block btn-link" onclick="copyApiCall()" style="border: none; padding: 1px; color:cyan;"><i id="copybutton" class="fa fa-clipboard glyphicon glyphicon-clipboard fa-sm" title="Copy URL link"></i></button>
       </div>
 
+      <div id="gdelt_request_status" class="row col-12 text-info small" style="display:none;"
+           role="status" aria-live="polite" aria-atomic="true">
+        <span id="gdelt_request_spinner" class="spinner-border spinner-border-sm mr-1" role="status" aria-hidden="true"></span>
+        <span id="gdelt_request_status_text"></span>
+      </div>
+
+      <div id="compare_load_status" class="row col-12 small" style="display:none;"
+           role="status" aria-live="polite" aria-atomic="true">
+        <div class="col-12">
+          <div class="progress" style="height:6px; margin-bottom:4px;">
+            <div id="compare_load_progress" class="progress-bar progress-bar-striped progress-bar-animated"
+                 role="progressbar" style="width:0%"
+                 aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+          <span id="compare_load_status_text" class="text-info"></span>
+        </div>
+        <div class="col-12 mt-1">
+          <button id="compare_load_cancel" type="button" class="btn btn-sm btn-outline-warning mr-1"
+                  onclick="cancelCompareLoads()" style="display:none;">Cancel</button>
+          <button id="compare_load_view" type="button" class="btn btn-sm btn-outline-info"
+                  onclick="viewLoadedCompareDatasets()" style="display:none;">View loaded datasets</button>
+        </div>
+      </div>
+
     </div>  <!-- END SIDE-PANEL DIV -->
 
     <!-- MAIN PANEL DIV -->
