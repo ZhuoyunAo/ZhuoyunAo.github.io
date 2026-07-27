@@ -41,7 +41,7 @@ function add_dataset(x) {
   } else {
     // get the data
     if(VERBOSE) { clog('getting data for ' + API_URL); }
-    $.ajax({
+    gdeltAjax({
       url: API_URL.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json', // ensure correct format argument
       type: 'GET',
       dataType: 'json',

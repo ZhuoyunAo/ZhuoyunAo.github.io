@@ -199,14 +199,14 @@ function load_menu_data (fn, ids, max_items, title) {
       for(var i=0; i<ids.length; i++) { selectize_element(ids[i], max_items[i], options, title[i]); }
       sources_loaded++;
       if(sources_loaded == 11) { if(VERBOSE) { clog('LOAD COMPLETE'); }}
-  	},
+   	},
   });
 }
 
 // load selection option sets and append as options to DOM. Adds title tooltips to new elements
-load_menu_data("data/LOOKUP-IMAGETAGS.json", ['#imagetag'], [7], ['Every image processed by GDELT is assigned one or more topical tags from a universe of more than 10,000 objects and activities recognized by Google']);
-load_menu_data("data/LOOKUP-GKGTHEMES.json", ['#theme'], [7], ['Searches for any of the GDELT Global Knowledge Graph (GKG) Themes. GKG Themes offer a powerful way of searching for complex topics, since there can be numerous different phrases or names under a single heading. Key in likely relevant themes to find matching options. Words on the left denote the semantic hierarchy.']);
-load_menu_data("data/LOOKUP-LANGUAGES.json", ['#searchlang','#sourcelang'], [1,7], ['','Language(s) of the content you are searching for. GDELT handles the interpretation']); // searchlang deprecated, but new local lang API anticipated
+load_menu_data("data/LOOKUP-IMAGETAGS.json", ['#imagetag'], [7], ['Every image processed by GDELT is assigned one or more topical tags from a universe of more than 10,000 objects and activities represented by 2,500 selected English words and word stems.']);
+load_menu_data("data/LOOKUP-GKGTHEMES.json", ['#theme'], [7], ['Searches for any of the GDELT Global Knowledge Graph (GKG) Themes. GKG Themes offer a powerful way of searching for complex topics, events and issues.']);
+load_menu_data("data/LOOKUP-LANGUAGES.json", ['#searchlang','#sourcelang'], [1,7], ['','Language(s) of the content you are searching for. GDELT handles the interpretation']); // searchlang deprecated
 load_menu_data("data/LOOKUP-COUNTRIES.json", ['#sourcecountry','#geolocationcc'], [7,7], ['Country or countries where the target content has originated','Specify country of media mentions']);
 load_menu_data("data/LOOKUP-ADM1.json", ['#geolocationadm1'], [7], ['Specify ADM1 (top sub-national) geographical region of media mentions']);
 load_menu_data("data/lookup-sort.json", ['#sort'], [1], ['By default results are sorted by relevance. You can also sort by date or article tone instead']);
@@ -277,8 +277,13 @@ $(window).bind("load", function() {
   update_query('api', query.api);
   $('#query').focus();
   if(compare_mode){
-    document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
-    action_analysis();
+    compareLoadPromise.then(function() {
+      document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
+      action_analysis();
+    }).catch(function(err) {
+      console.error('Unable to load one or more comparison datasets.', err);
+      alert('One or more comparison datasets could not be loaded. Please wait and try again.');
+    });
   }
   resize_panels();
 });
