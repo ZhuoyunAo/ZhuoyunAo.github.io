@@ -4,6 +4,144 @@ var LIVE = false, // no API calls until fully initialised
     VERBOSE = false, // verbose console reporting: append '&verbose' to end of URL and refresh page
     API_URL = '';
 
+// GDELT allows one request every five seconds. All API requests in this app
+// must reserve a slot through these helpers.
+var GDELT_MIN_REQUEST_INTERVAL = 5000;
+var gdeltNextRequestAt = 0;
+var gdeltIframeTimer = null;
+var gdeltIframeRevision = 0;
+var gdeltIframeLoadRevision = 0;
+var compareLoadPromise = Promise.resolve();
+
+// --- Request status UI helpers ---
+
+function setGdeltRequestStatus(message) {
+  var $container = $('#gdelt_request_status_container');
+  var $spinner = $('#gdelt_request_spinner');
+  var $text = $('#gdelt_request_status_text');
+  if (!message) {
+    $container.hide();
+    return;
+  }
+  $text.text(message);
+  $container.show();
+}
+
+function showRequestSpinner(show) {
+  var $spinner = $('#gdelt_request_spinner');
+  if (show) { $spinner.show(); } else { $spinner.hide(); }
+}
+
+// --- Compare progress UI helpers ---
+
+function setCompareLoadStatus(completed, total, failed) {
+  var $container = $('#compare_load_status_container');
+  var $bar = $('#compare_progress_bar');
+  var $text = $('#compare_load_status_text');
+
+  if (!total) {
+    $container.hide();
+    return;
+  }
+
+  $container.show();
+  var pct = Math.round((completed / total) * 100);
+  $bar.attr('aria-valuenow', pct).css('width', pct + '%');
+
+  if (failed) {
+    $bar.removeClass('progress-bar-animated bg-danger').addClass('bg-danger');
+    $bar.removeClass('progress-bar-animated');
+    $text.text('Comparison loading stopped: ' + completed + ' of ' + total + ' dataset(s) loaded.');
+    return;
+  }
+
+  if (completed >= total) {
+    $bar.removeClass('progress-bar-animated');
+    $text.text('Comparison datasets loaded: ' + total + ' of ' + total + '.');
+    return;
+  }
+
+  $bar.addClass('progress-bar-animated').removeClass('bg-danger');
+  $text.text('Loading comparison datasets: ' + completed + ' of ' + total + '\u2026');
+}
+
+// --- GDELT request scheduler ---
+
+function scheduleGdeltRequest(callback, delay) {
+  var startAt = Math.max(Date.now() + (delay || 0), gdeltNextRequestAt);
+  var wait = startAt - Date.now();
+  gdeltNextRequestAt = startAt + GDELT_MIN_REQUEST_INTERVAL;
+
+  if (wait > 250) {
+    setGdeltRequestStatus('Waiting for GDELT rate limit\u2026 next request in ' + Math.ceil(wait / 1000) + ' second(s).');
+    showRequestSpinner(true);
+  }
+
+  window.setTimeout(function() {
+    setGdeltRequestStatus('Requesting data from GDELT\u2026');
+    showRequestSpinner(true);
+    callback();
+  }, wait);
+}
+
+// Use this instead of $.ajax() for calls to api.gdeltproject.org.
+// It retries rate-limit responses at most three times.
+function gdeltAjax(options, attempt, retryDelay) {
+  attempt = attempt || 0;
+
+  return new Promise(function(resolve, reject) {
+    scheduleGdeltRequest(function() {
+      $.ajax($.extend({}, options, {
+        success: function(data, status, xhr) {
+          setGdeltRequestStatus('');
+          if ($.isFunction(options.success)) { options.success(data, status, xhr); }
+          resolve(data);
+        },
+        error: function(xhr, status, error) {
+          var responseText = xhr.responseText || '';
+          var rateLimited =
+            xhr.status === 429 ||
+            /please limit requests to one every 5 seconds/i.test(responseText);
+
+          if (rateLimited && attempt < 3) {
+            var retryAfter = parseInt(xhr.getResponseHeader('Retry-After'), 10);
+            var retryWait = isNaN(retryAfter)
+              ? GDELT_MIN_REQUEST_INTERVAL
+              : retryAfter * 1000;
+
+            setGdeltRequestStatus('GDELT rate limit reached. Retrying in ' + Math.ceil(retryWait / 1000) + ' second(s)\u2026');
+            showRequestSpinner(true);
+            gdeltAjax(options, attempt + 1, retryWait).then(resolve).catch(reject);
+            return;
+          }
+
+          setGdeltRequestStatus('GDELT request failed. Please try again shortly.');
+          showRequestSpinner(false);
+          if ($.isFunction(options.error)) { options.error(xhr, status, error); }
+          reject(xhr);
+        }
+      }));
+    }, retryDelay);
+  });
+}
+
+// Keep only the latest interactive query. Prevents stale typed queries from
+// loading after the user has changed the search. Clears the spinner on the
+// iframe's load event, not immediately, so a newer pending request keeps its status.
+function scheduleGdeltIframeLoad(url) {
+  var revision = ++gdeltIframeRevision;
+  clearTimeout(gdeltIframeTimer);
+
+  gdeltIframeTimer = window.setTimeout(function() {
+    scheduleGdeltRequest(function() {
+      if (revision === gdeltIframeRevision) {
+        gdeltIframeLoadRevision = revision;
+        $('#gdelt_iframe').attr('src', url);
+      }
+    });
+  }, 750);
+}
+
 var t0 = performance.now();
 var sources_loaded = 0;
 
@@ -90,7 +228,7 @@ function action_query() {
       $("#gdelt_iframe").attr("src", './trending_topics.html');
       return;
     }
-    $("#gdelt_iframe").attr("src", API_URL);
+    scheduleGdeltIframeLoad(API_URL);
   }
 }
 
@@ -201,24 +339,35 @@ function hash(){
   if(init_args[0] == 'compare') {
     if(VERBOSE) { clog('compare init start'); }
     compare_mode = true;  // initialise in Compare mode?
+    var compareRequests = [];
+    var compareCompleted = 0;
+    var compareTotal = init_args.length - 1;
+    setCompareLoadStatus(compareCompleted, compareTotal, false);
+
     for(var i=1; i<init_args.length; i++){
       var compare_arg = c(init_args[i]).split('=');
       var dataname = c(compare_arg[0]);
       compare_url = decodeURIComponent(c(compare_arg[1]));
       compare_url = compare_url.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json'; // ensure correct format argument
-      $.ajax({
-        url: compare_url,
-        type: 'GET',
-        dataType: 'json',
-        error: function(err) { if(VERBOSE) { clog('ajax call fail: ' + err); }},
-        success: function(options) {
-          datasets[dataname] = { 'name': dataname, 'url': compare_url, 'data': options };
-          if(VERBOSE) { clog('comp data added for: ' + dataname); }
-          clog('comp data added for: ' + dataname);
-      	},
-        async: false, // get synchronously
-      });
+      (function(name, url) {
+        compareRequests.push(gdeltAjax({
+          url: url,
+          type: 'GET',
+          dataType: 'json',
+          error: function(err) {
+            if(VERBOSE) { clog('ajax call fail: ' + err); }
+          },
+          success: function(options) {
+            datasets[name] = { 'name': name, 'url': url, 'data': options };
+            if(VERBOSE) { clog('comp data added for: ' + name); }
+            clog('comp data added for: ' + name);
+            compareCompleted++;
+            setCompareLoadStatus(compareCompleted, compareTotal, false);
+          }
+        }));
+      })(dataname, compare_url);
     }
+    compareLoadPromise = Promise.all(compareRequests);
     init_argset_keys = ['timelinemode'];
 
     // initialise app inputs with one of the options
