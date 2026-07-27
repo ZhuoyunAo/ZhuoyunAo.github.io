@@ -58,7 +58,7 @@ function add_dataset(x) {
 }
 
 // on 'View' click
-function action_analysis() {
+function action_analysis(partial) {
   // update hash
   var hash = 'compare&';
   var datakeys = Object.keys(datasets);
@@ -66,6 +66,7 @@ function action_analysis() {
   location.href = '#' + hash.replace(/&$/g, '').replace(/ /gi, '%20'); // remove last joiner '&' and change spaces to %20
   // update title and call the compare template
   var title = 'Compare: ' + Object.keys(datasets).join(', ');
+  if(partial) { title += ' (partial results)'; }
   $("#iframe_title").text(title);
   iframe_zoom(2);
   $("#gdelt_iframe").attr("src", 'timeline.html');

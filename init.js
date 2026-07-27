@@ -266,6 +266,15 @@ function hash(){
   if(VERBOSE) clog('hash parsed');
 }
 
+function viewLoadedCompareDatasets() {
+  var loadedCount = Object.keys(datasets).length;
+  if(!loadedCount) { return; }
+  var compareCount = document.getElementById("analysis_datacount");
+  if(compareCount) { compareCount.innerHTML = loadedCount; }
+  if(typeof action_analysis !== 'function') { return; }
+  action_analysis(true);
+}
+
 function copyApiCall(element) {
   var $temp = $("<input>");
   $("body").append($temp);
@@ -275,4 +284,3 @@ function copyApiCall(element) {
 }
 
 hash();
-
