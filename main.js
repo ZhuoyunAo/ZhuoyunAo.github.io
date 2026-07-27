@@ -1,4 +1,3 @@
-
 // INTERFACE ADJUSTMENTS
 document.getElementById("searchTabInput").click();  // select default query tab
 document.getElementById("contentTabOutput").click(); // select default query tab
@@ -172,73 +171,114 @@ function selectize_element (id, max_items, options, title) {
   $(id).change(function() { update_query(c(id), c($(id).val())); }); // event listener
 }
 
-// ENHANCED: Rate-limited menu data loader using queue_ajax from init.js
 function load_menu_data (fn, ids, max_items, title) {
-  if(VERBOSE) clog(fn + ' start');
-  
-  queue_ajax(
-    fn,
-    function(options) {
+  //if(VERBOSE) clog(fn + ' start');
+  $.ajax({
+    url: fn,
+    type: 'GET',
+    dataType: 'json',
+    error: function(err) { clog(err); },
+    success: function(options) {
       if(fn == "data/LOOKUP-IMAGETAGS.json" || fn == "data/LOOKUP-GKGTHEMES.json"){
         for(var i=0; i<options.length; i++) { options[i].name = options[i].code + ' (' + options[i].n + ')'; }
       }
       if(fn == "//api.gdeltproject.org/api/v2/tv/tv?mode=stationdetails&format=json"){
         options = options.station_details;
-        for(var i=0; i<options.length; i++) { options[i].name = options[i].callsign + ' (' + options[i].network + ')'; }
+        for(var i=0; i<options.length; i++) {
+          options[i].code = options[i].StationID;
+          options[i].name = options[i].Description;
+          options = options.filter(function (item) {
+            var live = moment(new Date()) - moment(item.EndDate) < 604800000;
+            var nat_int = ['International','National'].indexOf(item.Market) > -1;
+            var cspan = ['CSPAN2','CSPAN3'].indexOf(item.StationID) == -1;
+            return live && nat_int && cspan;
+          });
+        }
       }
-      if(fn.indexOf('.json') == -1){
-        if(!options.results) {  alert('Check internet connection or network error'); return; }
-        options = options.results;
-      }
-      for(var i=0; i<ids.length; i++) { selectize_element( '#' + ids[i], max_items, options, title ); }
-      if(VERBOSE) clog(fn + ' end');
-    },
-    function(err) { 
-      clog(err);
-    }
-  );
+      // selectize each associated DOM element
+      for(var i=0; i<ids.length; i++) { selectize_element(ids[i], max_items[i], options, title[i]); }
+      sources_loaded++;
+      if(sources_loaded == 11) { if(VERBOSE) { clog('LOAD COMPLETE'); }}
+  	},
+  });
 }
+
+// load selection option sets and append as options to DOM. Adds title tooltips to new elements
+load_menu_data("data/LOOKUP-IMAGETAGS.json", ['#imagetag'], [7], ['Every image processed by GDELT is assigned one or more topical tags from a universe of more than 10,000 objects and activities recognized by Google']);
+load_menu_data("data/LOOKUP-GKGTHEMES.json", ['#theme'], [7], ['Searches for any of the GDELT Global Knowledge Graph (GKG) Themes. GKG Themes offer a powerful way of searching for complex topics, since there can be numerous different phrases or names under a single heading. Key in likely relevant themes to find matching options. Words on the left denote the semantic hierarchy.']);
+load_menu_data("data/LOOKUP-LANGUAGES.json", ['#searchlang','#sourcelang'], [1,7], ['','Language(s) of the content you are searching for. GDELT handles the interpretation']); // searchlang deprecated, but new local lang API anticipated
+load_menu_data("data/LOOKUP-COUNTRIES.json", ['#sourcecountry','#geolocationcc'], [7,7], ['Country or countries where the target content has originated','Specify country of media mentions']);
+load_menu_data("data/LOOKUP-ADM1.json", ['#geolocationadm1'], [7], ['Specify ADM1 (top sub-national) geographical region of media mentions']);
+load_menu_data("data/lookup-sort.json", ['#sort'], [1], ['By default results are sorted by relevance. You can also sort by date or article tone instead']);
+load_menu_data("data/lookup-domain.json", ['#domain'], [7], ['Web domain of target content - e.g. "cnn.com"']);
+load_menu_data("data/lookup-mode.json", ['#contentmode'], [1], ['GDELT modes for investigating source content']);
+load_menu_data("data/lookup-timeline.json", ['#timelinemode'], [1], ['GDELT modes for investigating trends over time']);
+load_menu_data("data/lookup-tv.json", ['#tvmode'], [1], ['GDELT modes for investigating television trends']);
+load_menu_data("data/lookup-format.json", ['#format'], [1], ['Data formats for data export']);
+load_menu_data("data/lookup-geo_mode.json", ['#geomode'], [1], ['GDELT modes for investigating geographical references within the content. This use GDELT\'s 7 day GEO API.']);
+load_menu_data("data/lookup-geo_format.json", ['#geoformat'], [1], ['Data formats for data export']);
+load_menu_data("//api.gdeltproject.org/api/v2/tv/tv?mode=stationdetails&format=json", ['#network'], [7], ['TV networks - national and international.']);
+// load_menu_data("data/LOOKUP-STATIONS.json", ['#network'], [7], ['TV networks - national and international.']);
+
+// EVENT HANDLERS
+
+var timeout = null; // global timer to perform actions 0.5s after input activity has stopped
 
 function pad (str, max) { str = str.toString(); return str.length < max ? pad("0" + str, max) : str; }
 
 function manage_event(id, target, report, val) {
-  if(val == '') { return; }
-  var idx = query[id].indexOf(val);
-  if(idx == -1) {
-    if(query[id].length) {query[id] += ',' + val;} else {query[id] = val;}
-  } else { // remove this val from query[id]
-    query[id] = query[id].replace(val, '').replace(/^,|,$/g, '').replace(/,,/g, ',');
-  }
-  update_query(id, query[id]);
-  $(target).val(''); // clear input box
+  var input = document.getElementById(id);
+  if(typeof report != "undefined"){ document.getElementById(report).innerHTML = c(input.value); }
+  clearTimeout(timeout);
+  timeout = setTimeout(function () {
+    update_query(target, input.value);
+  }, 500);
 }
 
+$("#query").keyup(function(){ manage_event('query', 'query') } );
+$("#timespan").keyup(function(){ manage_event('timespan', 'timespan') } );
+$("#maxrecords").on('input', function(){ manage_event('maxrecords', 'maxrecords', 'maxrecordslab') } );
+$("#timelinesmooth").on('input', function(){ manage_event('timelinesmooth', 'timelinesmooth', 'timelinesmoothlab') } );
+$("#geotimespan").on('input', function(){ manage_event('geotimespan', 'geotimespan') } );
+$("#geolocation").keyup(function(){ manage_event('geolocation', 'geolocation' )} );
+$("#geogeores").keyup(function(){ manage_event('geogeores', 'geogeores') } );
+$("#geonear").keyup(function(){ manage_event('geonear', 'geonear') } );
+$("#context").keyup(function(){ manage_event('context', 'context') } );
+
+
+// ensure checkboxes initialise matching query dict
+document.getElementById('domainis').checked = query.domainis;
+document.getElementById('trans').checked = query.trans;
+// checkbox event handlers
 function checkboxDomain() { update_query('domainis', !query.domainis); }
 function checkboxTrans() { update_query('trans', !query.trans); } // translate non-English content
 function checkboxImageBool() { action_query(); } // Image tag boolean option
 function checkboxThemeBool() { action_query(); } // Theme tag boolean option
 
-function slider_record_count() {
-  var slider_val = document.getElementById("maxrecords").value;
-  document.getElementById("maxrecordslab").innerHTML = slider_val;
-  update_query('maxrecords', slider_val);
+// select relevant tab if not 'CONTENT'
+if(init_argset_keys){
+  if(init_argset.api == 'geo') {
+    document.getElementById("geoTabOutput").click();
+  } else {
+    if(init_argset.api == 'tv'){
+      document.getElementById("tvTabOutput").click();
+    } else { if(init_argset_keys.indexOf('timelinemode') > -1) { document.getElementById("timelineTabOutput").click(); }}
+  }
+  if(!query.query) { // if no query argument and there is an imagetag/theme argument, select that tab
+    if(query.imagetag) {
+      document.getElementById("imageTabInput").click();
+    } else { if(query.theme) { document.getElementById("themeTabInput").click(); }}
+  }
 }
 
-function slider_timeline_smooth() {
-  var slider_val = document.getElementById("timelinesmooth").value;
-  document.getElementById("timelinesmoothlab").innerHTML = slider_val;
-  update_query('timelinesmooth', slider_val);
-}
-
-function toggle_toggle_button(element) {
-  $(element).toggleClass('active');
-}
-
-// initialises page once HTML, CSS and init.js loaded
-LIVE = true;
-
-// set initial labels for sliders
-var maxrec_slider = document.getElementById("maxrecords");
-if(maxrec_slider) { maxrec_slider.onchange = function () { slider_record_count(); } }
-var smooth_slider = document.getElementById("timelinesmooth");
-if(smooth_slider) { smooth_slider.onchange = function () { slider_timeline_smooth(); } }
+// start the fun
+$(window).bind("load", function() {
+  LIVE = true;
+  update_query('api', query.api);
+  $('#query').focus();
+  if(compare_mode){
+    document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
+    action_analysis();
+  }
+  resize_panels();
+});
