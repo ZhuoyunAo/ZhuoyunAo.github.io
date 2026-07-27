@@ -23,11 +23,7 @@
 
   <script>
 
-var $ = window.parent.$;
 var api_url = window.parent.API_URL;
-var queue_ajax = window.parent.queue_ajax;
-var clog = window.parent.clog;
-var VERBOSE = window.parent.VERBOSE;
 
 function array_to_ul(x, sep1='', sep2='') {
   var item = '';
@@ -35,10 +31,12 @@ function array_to_ul(x, sep1='', sep2='') {
   return item ;
 }
 
-// ENHANCED: Use rate-limited queue from parent init.js instead of direct AJAX
-queue_ajax(
-  api_url,
-  function(dat) {
+$.ajax({
+  url: api_url,
+  type: 'GET',
+  dataType: 'json',
+  error: function(err) { console.log(err); },
+  success: function(dat) {
     d = dat;
 
     var body = '<div class="row">\
@@ -66,11 +64,9 @@ queue_ajax(
     $("#main").append(body);
     console.log('end');
   },
-  function(err) { 
-    console.log('Trending topics load error: ' + err); 
-  }
-);
+});
 
   </script>
 </body>
 </html>
+
