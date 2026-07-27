@@ -277,8 +277,17 @@ $(window).bind("load", function() {
   update_query('api', query.api);
   $('#query').focus();
   if(compare_mode){
-    document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
-    action_analysis();
+    compareLoadPromise.then(function() {
+      document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
+      action_analysis();
+    }).catch(function(err) {
+      if (err && err.cancelled) {
+        console.log('Comparison dataset loading canceled by user.');
+        return;
+      }
+      console.error('Unable to load one or more comparison datasets.', err);
+      alert('One or more comparison datasets could not be loaded. Please wait and try again.');
+    });
   }
   resize_panels();
 });
