@@ -267,9 +267,11 @@ function hash(){
 }
 
 function viewLoadedCompareDatasets() {
-  var loaded = Object.keys(datasets).length;
-  if(!loaded) { return; }
-  document.getElementById("analysis_datacount").innerHTML = loaded;
+  var loadedCount = Object.keys(datasets).length;
+  if(!loadedCount) { return; }
+  var compareCount = document.getElementById("analysis_datacount");
+  if(compareCount) { compareCount.innerHTML = loadedCount; }
+  if(typeof action_analysis !== 'function') { return; }
   action_analysis(true);
 }
 
