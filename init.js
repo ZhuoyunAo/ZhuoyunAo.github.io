@@ -12,6 +12,7 @@ var gdeltIframeTimer = null;
 var gdeltIframeRevision = 0;
 var gdeltIframeLoadRevision = 0;
 var compareLoadPromise = Promise.resolve();
+var compareTotal = 0;
 
 // --- Request status UI helpers ---
 
@@ -49,8 +50,7 @@ function setCompareLoadStatus(completed, total, failed) {
   $bar.attr('aria-valuenow', pct).css('width', pct + '%');
 
   if (failed) {
-    $bar.removeClass('progress-bar-animated bg-danger').addClass('bg-danger');
-    $bar.removeClass('progress-bar-animated');
+    $bar.removeClass('progress-bar-animated').addClass('bg-danger');
     $text.text('Comparison loading stopped: ' + completed + ' of ' + total + ' dataset(s) loaded.');
     return;
   }
@@ -105,9 +105,9 @@ function gdeltAjax(options, attempt, retryDelay) {
 
           if (rateLimited && attempt < 3) {
             var retryAfter = parseInt(xhr.getResponseHeader('Retry-After'), 10);
-            var retryWait = isNaN(retryAfter)
-              ? GDELT_MIN_REQUEST_INTERVAL
-              : retryAfter * 1000;
+            var retryWait = (!isNaN(retryAfter) && retryAfter > 0)
+              ? Math.min(retryAfter, 300) * 1000
+              : GDELT_MIN_REQUEST_INTERVAL;
 
             setGdeltRequestStatus('GDELT rate limit reached. Retrying in ' + Math.ceil(retryWait / 1000) + ' second(s)\u2026');
             showRequestSpinner(true);
@@ -341,7 +341,7 @@ function hash(){
     compare_mode = true;  // initialise in Compare mode?
     var compareRequests = [];
     var compareCompleted = 0;
-    var compareTotal = init_args.length - 1;
+    compareTotal = init_args.length - 1;
     setCompareLoadStatus(compareCompleted, compareTotal, false);
 
     for(var i=1; i<init_args.length; i++){
@@ -356,6 +356,8 @@ function hash(){
           dataType: 'json',
           error: function(err) {
             if(VERBOSE) { clog('ajax call fail: ' + err); }
+            compareCompleted++;
+            setCompareLoadStatus(compareCompleted, compareTotal, true);
           },
           success: function(options) {
             datasets[name] = { 'name': name, 'url': url, 'data': options };

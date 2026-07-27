@@ -282,7 +282,7 @@ $(window).bind("load", function() {
       action_analysis();
     }).catch(function(err) {
       console.error('Unable to load one or more comparison datasets.', err);
-      setCompareLoadStatus(Object.keys(datasets).length, Object.keys(datasets).length + 1, true);
+      setCompareLoadStatus(Object.keys(datasets).length, compareTotal, true);
       alert('One or more comparison datasets could not be loaded. Please wait and try again.');
     });
   }
