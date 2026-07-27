@@ -1,4 +1,3 @@
-
 var msg = "GIVE IT A NAME.\n\n\
 This gets the data for the current GDELT query to compare against\n\
 data for other queries. Give it a name to distinguish it.\n\n\
@@ -29,7 +28,6 @@ function add_layers() {
 }
 
 // Interpret name from compareAddModal modal, and add/replace/remove data as appropriate
-// ENHANCED: Uses rate-limited AJAX queue from init.js
 function add_dataset(x) {
   var datakeys = Object.keys(datasets);
   dataname = x;
@@ -41,24 +39,21 @@ function add_dataset(x) {
 			document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
 		}
   } else {
-    // get the data using rate-limited queue
+    // get the data
     if(VERBOSE) { clog('getting data for ' + API_URL); }
-    
-    var url = API_URL.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json';
-    
-    queue_ajax(
-      url,
-      function(options) {
+    $.ajax({
+      url: API_URL.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json', // ensure correct format argument
+      type: 'GET',
+      dataType: 'json',
+      error: function(err) { if(VERBOSE) { clog('ajax call fail: ' + err); }},
+      success: function(options) {
         datasets[dataname] = { 'name': dataname, 'url': c(API_URL).replace(/&format=json/gi, ''), 'data': options };
         if(VERBOSE) { clog('comp data added for: ' + dataname); }
         $('#analysis_buttons_div').toggleClass('active');
         setTimeout(function () { $('#analysis_buttons_div').toggleClass('active'); }, 500);
-        document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
-      },
-      function(err) {
-        if(VERBOSE) { clog('ajax call fail: ' + err); }
-      }
-    );
+				document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
+    	},
+    });
   }
 }
 
