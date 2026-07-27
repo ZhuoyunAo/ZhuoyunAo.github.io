@@ -277,8 +277,21 @@ $(window).bind("load", function() {
   update_query('api', query.api);
   $('#query').focus();
   if(compare_mode){
-    document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
-    action_analysis();
+    compareLoadPromise.then(function() {
+      document.getElementById("analysis_datacount").innerHTML = Object.keys(datasets).length;
+      action_analysis();
+    }).catch(function(err) {
+      console.error('Unable to load one or more comparison datasets.', err);
+      setCompareLoadStatus(Object.keys(datasets).length, compareTotal, true);
+      alert('One or more comparison datasets could not be loaded. Please wait and try again.');
+    });
   }
+  // Clear the request spinner when the iframe finishes loading, but only if
+  // no newer request is already pending (identified by revision number).
+  $('#gdelt_iframe').on('load', function() {
+    if (gdeltIframeLoadRevision === gdeltIframeRevision) {
+      setGdeltRequestStatus('');
+    }
+  });
   resize_panels();
 });
