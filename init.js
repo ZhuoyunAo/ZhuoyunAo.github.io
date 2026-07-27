@@ -51,68 +51,7 @@ var query = {
 };
 var QKEYS = Object.keys(query).slice(); // fixed array of query dict keys so we can work with their indices
 
-// ===== UNIVERSAL RATE-LIMITED AJAX QUEUE SYSTEM =====
-var last_request_time = 0;
-const MIN_REQUEST_INTERVAL = 5000; // 5 seconds in milliseconds (per GDELT requirement)
-var pending_query = null;
-
-// Universal AJAX queue for all API calls
-var ajax_queue = [];
-var ajax_in_progress = false;
-var last_ajax_time = 0;
-
-function process_ajax_queue() {
-  if(ajax_in_progress || ajax_queue.length === 0) return;
-  
-  const now = Date.now();
-  const time_since_last = now - last_ajax_time;
-  
-  if(time_since_last < MIN_REQUEST_INTERVAL) {
-    setTimeout(process_ajax_queue, MIN_REQUEST_INTERVAL - time_since_last);
-    return;
-  }
-  
-  ajax_in_progress = true;
-  last_ajax_time = now;
-  var task = ajax_queue.shift();
-  
-  $.ajax({
-    url: task.url,
-    type: task.type || 'GET',
-    dataType: task.dataType || 'json',
-    timeout: task.timeout || 8000,
-    error: function(err) {
-      if(VERBOSE) clog('AJAX error: ' + task.url + ' - ' + err.statusText);
-      task.error && task.error(err);
-      ajax_in_progress = false;
-      setTimeout(process_ajax_queue, 1000); // retry after 1s
-    },
-    success: function(data) {
-      if(VERBOSE) clog('AJAX success: ' + task.url);
-      task.success && task.success(data);
-      ajax_in_progress = false;
-      setTimeout(process_ajax_queue, 500); // slight delay before next
-    }
-  });
-}
-
-// Queue an AJAX call with rate limiting
-function queue_ajax(url, success_callback, error_callback, dataType) {
-  ajax_queue.push({
-    url: url,
-    type: 'GET',
-    dataType: dataType || 'json',
-    success: success_callback,
-    error: error_callback
-  });
-  process_ajax_queue();
-}
-
-// ===== END RATE-LIMITED AJAX QUEUE SYSTEM =====
-
 // This updates query dictionary and hash string
-var update_query_timeout;
-
 function update_query(u_key, u_val, buildhash = true) {
   if(VERBOSE) clog('updating ' + u_key + ' to ' + u_val);
   u_key = u_key.replace(/#/gi, '');   // remove hash symbol
@@ -123,55 +62,25 @@ function update_query(u_key, u_val, buildhash = true) {
   if(query.timespan == ''){ $('#datetime').prop('disabled', false);
     } else { $('#datetime').prop('disabled', true); }
   if(buildhash) { // action API call unless supressed
-    
-    clearTimeout(update_query_timeout);
-    update_query_timeout = setTimeout(function() {
-      action_query();
-      iframe_zoom(2);
-    }, 500); // 500ms delay to catch multiple rapid updates
+    action_query();
+    iframe_zoom(2);
   }
 }
 
 // coordinates a new query
 function action_query() {
-  const now = Date.now();
-  const time_since_last = now - last_request_time;
-  
-  if (time_since_last < MIN_REQUEST_INTERVAL) {
-    // Queue the request instead of executing immediately
-    pending_query = { 
-      timestamp: now,
-      timeout: setTimeout(action_query, MIN_REQUEST_INTERVAL - time_since_last)
-    };
-    const wait_time = MIN_REQUEST_INTERVAL - time_since_last;
-    if(VERBOSE) clog(`Rate limit: queuing request for ${wait_time}ms`);
-    return;
-  }
-    
-  // Clear any pending query since we're executing now
-  if(pending_query) {
-    clearTimeout(pending_query.timeout);
-    pending_query = null;
-  }
-    
-  last_request_time = now;
-  $("#error_message").html(''); // Clear message
-    
   if(VERBOSE){ clog('action_query'); }
   var new_qry = build_hash();
   API_URL = api_call(new_qry.keys);
   location.href = '#' + new_qry.hash;
-    
   // show query string and tags above iframe
   var title = query.query;
   if(query.imagetag) { title += ' imagetags: ' + query.imagetag }
   if(query.theme) { title += ' themes: ' + query.theme }
   title = title.replace(/,/gi,', ');        // add space after commas
   $("#iframe_title").text(title);
-    
   // update URL link and iframe source
   $("#gdelt_api_call").text(API_URL).attr("href", c(API_URL));
-    
   if(LIVE){
     if(API_URL.indexOf('TrendingTopics') > -1) { // use custom template handling
       API_URL = API_URL.replace(/&format=[^&]+/, '&format=json');
@@ -181,20 +90,7 @@ function action_query() {
       $("#gdelt_iframe").attr("src", './trending_topics.html');
       return;
     }
-      
-    // Load with error handling
-    $("#gdelt_iframe").on('load', function() {
-      // Check for rate limit message in iframe
-      try {
-        var iframeContent = $(this).contents().text();
-        if(iframeContent.indexOf('limit requests to one every 5 seconds') > -1) {
-          $("#error_message").html('⚠️ API Rate Limit: Please wait 5 seconds before making another request.');
-          if(VERBOSE) clog('Rate limit message detected from API');
-        }
-      } catch(e) {
-        // Cross-origin, silent fail
-      }
-    }).attr("src", API_URL);
+    $("#gdelt_iframe").attr("src", API_URL);
   }
 }
 
@@ -310,19 +206,18 @@ function hash(){
       var dataname = c(compare_arg[0]);
       compare_url = decodeURIComponent(c(compare_arg[1]));
       compare_url = compare_url.replace(/&format=[a-zA-Z]+/gi, '') + '&format=json'; // ensure correct format argument
-      
-      // Use rate-limited queue for compare data loading
-      queue_ajax(
-        compare_url,
-        function(options) {
+      $.ajax({
+        url: compare_url,
+        type: 'GET',
+        dataType: 'json',
+        error: function(err) { if(VERBOSE) { clog('ajax call fail: ' + err); }},
+        success: function(options) {
           datasets[dataname] = { 'name': dataname, 'url': compare_url, 'data': options };
           if(VERBOSE) { clog('comp data added for: ' + dataname); }
           clog('comp data added for: ' + dataname);
-        },
-        function(err) {
-          if(VERBOSE) { clog('ajax call fail: ' + err); }
-        }
-      );
+      	},
+        async: false, // get synchronously
+      });
     }
     init_argset_keys = ['timelinemode'];
 
@@ -380,3 +275,4 @@ function copyApiCall(element) {
 }
 
 hash();
+
