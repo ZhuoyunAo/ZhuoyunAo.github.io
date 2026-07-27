@@ -235,7 +235,7 @@ function viewLoadedCompareDatasets() {
     return;
   }
 
-  document.getElementById('analysis_datacount').innerHTML = loaded;
+  $('#analysis_datacount').text(loaded);
   $('#compare_load_view').hide();
   action_analysis();
 }
@@ -417,7 +417,6 @@ function hash(){
     compare_mode = true;  // initialise in Compare mode?
 
     var compareRequests = [];
-    var compareCompleted = 0;
     var compareTotal = init_args.length - 1;
     compareLoadState = {
       active: true,
@@ -426,7 +425,7 @@ function hash(){
       completed: 0,
       total: compareTotal
     };
-    setCompareLoadStatus(compareCompleted, compareTotal);
+    setCompareLoadStatus(compareLoadState.completed, compareTotal);
 
     for(var i=1; i<init_args.length; i++){
       (function(idx) {
@@ -442,9 +441,8 @@ function hash(){
           error: function(err) { if(VERBOSE) { clog('ajax call fail: ' + err); }},
           success: function(options) {
             datasets[name] = { 'name': name, 'url': url, 'data': options };
-            compareCompleted++;
-            compareLoadState.completed = compareCompleted;
-            setCompareLoadStatus(compareCompleted, compareTotal);
+            compareLoadState.completed++;
+            setCompareLoadStatus(compareLoadState.completed, compareTotal);
             if(VERBOSE) { clog('comp data added for: ' + name); }
           }
         }, 0, 0, compareLoadState));
@@ -455,13 +453,13 @@ function hash(){
       .then(function(result) {
         compareLoadState.active = false;
         $('#compare_load_cancel').hide();
-        setCompareLoadStatus(compareCompleted, compareTotal);
+        setCompareLoadStatus(compareLoadState.completed, compareTotal);
         return result;
       })
       .catch(function(err) {
         compareLoadState.active = false;
         if (!err || !err.cancelled) {
-          setCompareLoadStatus(compareCompleted, compareTotal, true);
+          setCompareLoadStatus(compareLoadState.completed, compareTotal, true);
         }
         throw err;
       });
